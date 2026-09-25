@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RetailPulse - Local POS Counter</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --success: #16a34a;
+            --danger: #dc2626;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text-main); padding: 20px; }
+        .wrapper { max-width: 1000px; margin: 0 auto; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .badge { background: #dcfce7; color: var(--success); font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; }
+        
+        .grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media (min-width: 768px) { .grid { grid-template-columns: 1.1fr 1fr; } }
+
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        h2 { font-size: 18px; margin-bottom: 16px; color: var(--text-main); }
+
+        label { display: block; font-size: 13px; font-weight: 600; margin-top: 12px; margin-bottom: 4px; color: var(--text-main); }
+        select, input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: #fff; }
+        select:focus, input:focus { outline: none; border-color: var(--primary); }
+
+        .price-badge { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
+        .price-badge b { color: var(--text-main); }
+
+        .total-box { margin-top: 18px; padding: 14px; background: #eff6ff; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .total-box span { font-size: 14px; color: var(--text-muted); font-weight: 600; }
+        .total-box strong { font-size: 22px; color: var(--primary); }
+
+        button.btn-primary { width: 100%; margin-top: 18px; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        button.btn-primary:hover { background: var(--primary-hover); }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+        th { background: #f8fafc; color: var(--text-muted); font-weight: 600; }
+        
+        .btn-export { background: #f1f5f9; color: var(--text-main); border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; float: right; margin-top: -6px; }
+        .btn-export:hover { background: #e2e8f0; }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <header>
+        <div>
+            <h2>🛒 RetailPulse POS Counter</h2>
+            <small style="color: var(--text-muted);">Self-Hosted Local Terminal</small>
+        </div>
+        <span class="badge">🔒 100% Offline & Private</span>
+    </header>
+
+    <div class="grid">
+        <!-- Billing Counter -->
+        <div class="card">
+            <h2>New Bill</h2>
+
+            <label>Select Item</label>
+            <select id="prodSelect" onchange="handleProductChange()"></select>
+            <div class="price-badge">Category: <b id="prodCategory">-</b> | MRP: ₹<b id="prodMRP">0</b></div>
+
+            <label>Quantity</label>
+            <input type="number" id="qtyInput" value="1" min="1" oninput="calculateTotal()">
+
+            <label>Discount (₹)</label>
+            <input type="number" id="discInput" value="0" min="0" oninput="calculateTotal()">
+
+            <label>Payment Mode</label>
+            <select id="payMode">
+                <option value="UPI">UPI</option>
+                <option value="Cash">Cash</option>
+                <option value="Card">Card</option>
+            </select>
+
+            <div class="total-box">
+                <span>Grand Total:</span>
+                <strong id="displayTotal">₹0.00</strong>
+            </div>
+
+            <button class="btn-primary" onclick="generateBill()">Complete Sale / Generate Bill</button>
+        </div>
+
+        <!-- Inventory and Sales Activity -->
+        <div>
+            <div class="card">
+                <h2>📦 Local Stock (FIFO Batches)</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Batch</th>
+                            <th>Stock</th>
+                            <th>Expiry</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stockTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <button class="btn-export" onclick="exportToCSV()">Export Bills</button>
+                <h2>Recent Bills</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Bill #</th>
+                            <th>Item</th>
+                            <th>Mode</th>
+                            <th>Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="salesTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Initial inventory data
+    const initialInventory = [
+        { id: 1, name: "Amul Butter 500g", category: "Dairy", price: 275.0, batch: "BAT-BUT-01", stock: 30, expiry: "2026-10-04" },
+        { id: 2, name: "Tata Tea Premium 1kg", category: "Packaged Food", price: 450.0, batch: "BAT-TEA-01", stock: 25, expiry: "2027-09-25" },
+        { id: 3, name: "Maggi 2-Minute Noodles 70g", category: "Packaged Food", price: 14.0, batch: "BAT-MAG-01", stock: 100, expiry: "2027-03-24" }
+    ];
+
+    // LocalStorage initialization
+    let inventory = JSON.parse(localStorage.getItem("rp_inventory")) || initialInventory;
+    let sales = JSON.parse(localStorage.getItem("rp_sales")) || [];
+
+    function syncStorage() {
+        localStorage.setItem("rp_inventory", JSON.stringify(inventory));
+        localStorage.setItem("rp_sales", JSON.stringify(sales));
+    }
+
+    function initDropdown() {
+        const select = document.getElementById("prodSelect");
+        select.innerHTML = "";
+        inventory.forEach((item, idx) => {
+            const opt = document.createElement("option");
+            opt.value = idx;
+            opt.text = item.name;
+            select.appendChild(opt);
+        });
+        handleProductChange();
+    }
+
+    function handleProductChange() {
+        const idx = document.getElementById("prodSelect").value;
+        const item = inventory[idx];
+        if (item) {
+            document.getElementById("prodCategory").innerText = item.category;
+            document.getElementById("prodMRP").innerText = item.price.toFixed(2);
+            calculateTotal();
+        }
+    }
+
+    function calculateTotal() {
+        const idx = document.getElementById("prodSelect").value;
+        const item = inventory[idx];
+        const qty = parseInt(document.getElementById("qtyInput").value) || 0;
+        const disc = parseFloat(document.getElementById("discInput").value) || 0;
+        const total = Math.max(0, (item.price * qty) - disc);
+        document.getElementById("displayTotal").innerText = `₹${total.toFixed(2)}`;
+    }
+
+    function renderTables() {
+        // Stock Table
+        const stockBody = document.getElementById("stockTableBody");
+        stockBody.innerHTML = "";
+        inventory.forEach(i => {
+            stockBody.innerHTML += `
+                <tr>
+                    <td>${i.name}</td>
+                    <td><small>${i.batch}</small></td>
+                    <td><b>${i.stock}</b></td>
+                    <td><small>${i.expiry}</small></td>
+                </tr>
+            `;
+        });
+
+        // Sales Table
+        const salesBody = document.getElementById("salesTableBody");
+        salesBody.innerHTML = "";
+        sales.slice(-5).reverse().forEach(s => {
+            salesBody.innerHTML += `
+                <tr>
+                    <td>#${s.billId}</td>
+                    <td>${s.item} (${s.qty})</td>
+                    <td>${s.mode}</td>
+                    <td><b>₹${s.total.toFixed(2)}</b></td>
+                </tr>
+            `;
+        });
+    }
+
+    function generateBill() {
+        const idx = document.getElementById("prodSelect").value;
+        const item = inventory[idx];
+        const qty = parseInt(document.getElementById("qtyInput").value);
+        const disc = parseFloat(document.getElementById("discInput").value) || 0;
+        const mode = document.getElementById("payMode").value;
+
+        if (isNaN(qty) || qty <= 0) {
+            alert("Kripya valid quantity daalein.");
+            return;
+        }
+
+        if (item.stock < qty) {
+            alert(`Stock kam hai! Available stock: ${item.stock}`);
+            return;
+        }
+
+        // Deduct inventory
+        item.stock -= qty;
+
+        // Create sale record
+        const billId = sales.length + 1001;
+        const total = Math.max(0, (item.price * qty) - disc);
+        const saleRecord = {
+            billId: billId,
+            item: item.name,
+            qty: qty,
+            mode: mode,
+            total: total,
+            date: new Date().toLocaleString()
+        };
+
+        sales.push(saleRecord);
+        syncStorage();
+        renderTables();
+
+        // Reset inputs
+        document.getElementById("qtyInput").value = 1;
+        document.getElementById("discInput").value = 0;
+        calculateTotal();
+
+        alert(`✅ Bill #${billId} generated successfully! Stock deducted locally.`);
+    }
+
+    function exportToCSV() {
+        if (sales.length === 0) {
+            alert("Abhi tak koi bill nahi bana hai.");
+            return;
+        }
+        let csv = "BillID,Item,Quantity,PaymentMode,Total,DateTime\n";
+        sales.forEach(s => {
+            csv += `${s.billId},"${s.item}",${s.qty},${s.mode},${s.total},"${s.date}"\n`;
+        });
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `RetailPulse_Sales_${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+    }
+
+    // App start
+    initDropdown();
+    renderTables();
+</script>
+</body>
+</html>
